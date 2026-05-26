@@ -29,3 +29,8 @@ hapi:
 # define which resource providers to load (comma-separated list). empty list means "load all"
 fhir:
   providers: BundleProvider, ImmunizationProvider, OrganizationProvider, PatientProvider, PractitionerProvider, PractitionerRoleProvider, RelatedPersonProvider
+  ig:
+    files: >
+      classpath:/packages/ch-vacd_6.0.0.tgz,
+      classpath:/packages/ch-core_6.0.0.tgz,
+      classpath:/packages/ch-term_3.3.0.tgz
