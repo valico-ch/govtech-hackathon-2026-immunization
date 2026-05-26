@@ -25,6 +25,9 @@ services:
     container_name: vacd-fhir-server-1
     ports:
       - "9111:9111"
+    volumes:
+      - ./Docker/config:/config
+      - ./Docker/database:/database
 
   # Optional second instance — uncomment to enable.
   # Same image as fhir-server-1; only fhir-server-1 owns the build, so
