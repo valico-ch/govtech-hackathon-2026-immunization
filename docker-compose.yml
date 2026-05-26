@@ -34,9 +34,6 @@ services:
       timeout: 5s
       start_period: 60s
       retries: 12
-    volumes:
-      - ./Docker/config:/config
-      - ./Docker/database:/database
 
   # Optional second instance — uncomment to enable.
   # Same image as fhir-server-1; only fhir-server-1 owns the build, so
