@@ -13,7 +13,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
 
-private const val CH_VACD_PROFILE = "http://fhir.ch/ig/ch-vacd/StructureDefinition/ch-vacd-immunization"
+private const val CH_VACD_BUNDLE_PROFILE =
+    "http://fhir.ch/ig/ch-vacd/StructureDefinition/ch-vacd-document-immunization-administration"
 
 data class IngestResult(
     val compositionUid: String,
@@ -21,6 +22,7 @@ data class IngestResult(
     val patientId: String,
     val practitionerIds: List<String>,
     val organizationIds: List<String>,
+    val immunizationCount: Int,
     val intermediateFlat: JsonObject,
     val enrichedFlat: JsonObject,
     val originalFhirJson: String,
@@ -36,7 +38,7 @@ class ImmunizationIngest(
 
     suspend fun ingest(input: JsonElement): IngestResult {
         val peeled = BundleExtractor.peel(input)
-        validateStatus(peeled.immunization)
+        peeled.immunizations.forEach { validateStatus(it) }
 
         val patientId = hapi.createResource("Patient", hapi.stripId(peeled.patient))
         val practitionerIds = peeled.practitioners.map { hapi.createResource("Practitioner", hapi.stripId(it)) }
@@ -44,19 +46,18 @@ class ImmunizationIngest(
 
         val ehrId = cdr.findOrCreateEhr(patientId)
 
-        // Pin the FHIR resource to point at the HAPI-assigned Patient.id so any
-        // downstream re-hydration would resolve correctly. Also ensure the
-        // CH VACD profile is declared in meta.profile — openFHIR uses that to
-        // pick the right FHIRconnect context.
-        val pinned = ensureProfile(pinPatientRef(peeled.immunization, patientId))
-        val pinnedText = PrettyJson.encodeToString(JsonObject.serializer(), pinned)
+        // V2 FHIRconnect mapping starts at COMPOSITION level — send the full Bundle.
+        // openFHIR resolves urn:uuid references and navigates section→entry internally.
+        val bundle = ensureBundleProfile(input as JsonObject)
+        val bundleText = PrettyJson.encodeToString(JsonObject.serializer(), bundle)
 
-        val flat = openFhir.toOpenEhr(pinnedText, flat = true)
-        val enriched = FeederAuditEnricher.addOriginal(flat, pinnedText)
+        val flat = openFhir.toOpenEhr(bundleText, flat = true)
+        val enriched = FeederAuditEnricher.addOriginal(flat, bundleText)
 
         val flatText = PrettyJson.encodeToString(JsonObject.serializer(), enriched)
         val compositionUid = cdr.postCompositionFlat(ehrId, flatText, templateId)
-        log.info("Stored Composition uid={} ehrId={} patientId={}", compositionUid, ehrId, patientId)
+        log.info("Stored Composition uid={} ehrId={} patientId={} immunizations={}",
+            compositionUid, ehrId, patientId, peeled.immunizations.size)
 
         return IngestResult(
             compositionUid = compositionUid,
@@ -64,9 +65,10 @@ class ImmunizationIngest(
             patientId = patientId,
             practitionerIds = practitionerIds,
             organizationIds = organizationIds,
+            immunizationCount = peeled.immunizations.size,
             intermediateFlat = flat,
             enrichedFlat = enriched,
-            originalFhirJson = pinnedText,
+            originalFhirJson = bundleText,
         )
     }
 
@@ -77,27 +79,19 @@ class ImmunizationIngest(
         }
     }
 
-    private fun pinPatientRef(imm: JsonObject, patientId: String): JsonObject {
-        val patientNode = buildJsonObject { put("reference", "Patient/$patientId") }
-        val out = LinkedHashMap<String, JsonElement>()
-        out.putAll(imm)
-        out["patient"] = patientNode
-        return JsonObject(out)
-    }
-
-    private fun ensureProfile(imm: JsonObject): JsonObject {
-        val meta = imm["meta"] as? JsonObject
+    private fun ensureBundleProfile(bundle: JsonObject): JsonObject {
+        val meta = bundle["meta"] as? JsonObject
         val profiles = (meta?.get("profile") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }
-        if (profiles != null && profiles.contains(CH_VACD_PROFILE)) return imm
+        if (profiles != null && profiles.contains(CH_VACD_BUNDLE_PROFILE)) return bundle
         val newMeta = buildJsonObject {
             meta?.forEach { (k, v) -> if (k != "profile") put(k, v) }
             put("profile", buildJsonArray {
-                add(JsonPrimitive(CH_VACD_PROFILE))
-                profiles?.filter { it != CH_VACD_PROFILE }?.forEach { add(JsonPrimitive(it)) }
+                add(JsonPrimitive(CH_VACD_BUNDLE_PROFILE))
+                profiles?.filter { it != CH_VACD_BUNDLE_PROFILE }?.forEach { add(JsonPrimitive(it)) }
             })
         }
         val out = LinkedHashMap<String, JsonElement>()
-        out.putAll(imm)
+        out.putAll(bundle)
         out["meta"] = newMeta
         return JsonObject(out)
     }

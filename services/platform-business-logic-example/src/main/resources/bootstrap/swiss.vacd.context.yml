@@ -1,0 +1,24 @@
+grammar: FHIRConnect/v0.0.1
+type: context
+metadata:
+  name: health_summary.context
+  version: 0.0.1-alpha
+spec:
+  system: FHIR
+  version: R4
+
+context:
+  profile:
+    url: "http://fhir.ch/ig/ch-vacd/StructureDefinition/ch-vacd-document-immunization-administration"
+    version: "2.0.0"
+    _bundleMetadata:
+      type: "document"
+      profile: "http://fhir.ch/ig/ch-vacd/StructureDefinition/ch-vacd-document-vaccination-record"
+      identifier_system: "urn:ietf:rfc:3986"
+  template:
+    id: "ch-vacd-immunization administration.v1-alpha"
+  archetypes:
+    - "COMPOSITION.encounter.v1"
+    - "CLUSTER.medication.v2"
+    - "ACTION.medication.v1"
+  start: "COMPOSITION.encounter.v1"

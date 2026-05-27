@@ -10,16 +10,15 @@ import java.util.concurrent.atomic.AtomicReference
 
 enum class BootstrapState { PENDING, OPT_EHRBASE_DONE, OPT_OPENFHIR_DONE, CONTEXT_DONE, MODEL_DONE, READY, FAILED }
 
+private data class OptSpec(val templateId: String, val classpathFile: String)
+private data class YamlSpec(val metadataName: String, val classpathFile: String)
+
 /**
  * One-shot, idempotent bootstrap.
  *
- * Order:
- *  1. Wait for openFHIR + EHRbase reachable
- *  2. Upload OPT to EHRbase (skip if template_id already present)
- *  3. Upload OPT to openFHIR (skip if already listed)
- *  4. Upload FHIRconnect context YAML (skip if name already listed)
- *  5. Upload FHIRconnect model YAML (skip if name already listed)
- *  6. Smoke test toopenehr — left to ingest-time
+ * Uploads both OPTs (immunization-administration + vaccination-record),
+ * both FHIRconnect contexts, and all 4 model YAMLs. The mappings are
+ * loaded as a bidirectional unit; only the write path is tested for now.
  */
 class Bootstrap(
     private val openFhir: OpenFhirClient,
@@ -30,6 +29,23 @@ class Bootstrap(
     val state: AtomicReference<BootstrapState> = AtomicReference(BootstrapState.PENDING)
     val lastError: AtomicReference<String?> = AtomicReference(null)
 
+    private val opts = listOf(
+        OptSpec("ch-vacd-immunization administration.v1-alpha", "bootstrap/ch-vacd-immunization-administration.v1-alpha.opt"),
+        OptSpec("ch-vacd-vaccination-record.v1-alpha", "bootstrap/ch-vacd-vaccination-record.v1-alpha.opt"),
+    )
+
+    private val contextFiles = listOf(
+        "bootstrap/swiss.vacd.context.yml",
+        "bootstrap/swiss.vacd-list.context.yml",
+    )
+
+    private val models = listOf(
+        YamlSpec("COMPOSITION.encounter.v1", "bootstrap/COMPOSITION.encounter.v1.model.yml"),
+        YamlSpec("COMPOSITION.vaccination_list.v0", "bootstrap/COMPOSITION.vaccination_list.v0.model.yml"),
+        YamlSpec("ACTION.medication.v1", "bootstrap/ACTION.medication.v1.model.yml"),
+        YamlSpec("CLUSTER.medication.v2", "bootstrap/CLUSTER.medication.v2.model.yml"),
+    )
+
     private fun read(path: String): String =
         Bootstrap::class.java.classLoader.getResourceAsStream(path)?.bufferedReader()?.readText()
             ?: throw RuntimeException("classpath resource not found: $path")
@@ -37,13 +53,14 @@ class Bootstrap(
     suspend fun run() {
         try {
             waitFor()
-            uploadOptToEhrbase()
+            cleanupOldMappings()
+            uploadOptsToEhrbase()
             state.set(BootstrapState.OPT_EHRBASE_DONE)
-            uploadOptToOpenFhir()
+            uploadOptsToOpenFhir()
             state.set(BootstrapState.OPT_OPENFHIR_DONE)
-            uploadContext()
+            uploadContexts()
             state.set(BootstrapState.CONTEXT_DONE)
-            uploadModel()
+            uploadModels()
             state.set(BootstrapState.MODEL_DONE)
             state.set(BootstrapState.READY)
             log.info("Bootstrap READY")
@@ -59,7 +76,6 @@ class Bootstrap(
             try {
                 val (s, body) = openFhir.health()
                 if (s.value == 200 && body.contains("UP", ignoreCase = true)) {
-                    // ping ehrbase too
                     cdr.listTemplates()
                     return
                 }
@@ -70,70 +86,86 @@ class Bootstrap(
         throw RuntimeException("openFHIR / EHRbase not reachable after 120s")
     }
 
-    private suspend fun uploadOptToEhrbase() {
-        val existing = cdr.listTemplates()
-        val already = existing.any { entry ->
-            val obj = entry as? JsonObject ?: return@any false
-            val tid = (obj["template_id"] as? JsonPrimitive)?.content
-            tid == templateId
+    private suspend fun cleanupOldMappings() {
+        if (openFhir.deleteContext("ch-vacd-immunization.context")) {
+            log.info("openFHIR: deleted old V1 context 'ch-vacd-immunization.context'")
         }
-        if (already) {
-            log.info("EHRbase: template '{}' already present, skipping", templateId)
-            return
+        if (openFhir.deleteModel("ACTION.medication.v1")) {
+            log.info("openFHIR: deleted old model 'ACTION.medication.v1' (will re-upload V2)")
         }
-        val xml = read("bootstrap/ch-vacd-immunization-administration.v1-alpha.opt")
-        cdr.uploadOpt(xml)
-        log.info("EHRbase: uploaded OPT '{}'", templateId)
     }
 
-    private suspend fun uploadOptToOpenFhir() {
+    private suspend fun uploadOptsToEhrbase() {
+        val existing = cdr.listTemplates()
+        val presentIds = existing.mapNotNull { entry ->
+            (entry as? JsonObject)?.let { (it["template_id"] as? JsonPrimitive)?.content }
+        }.toSet()
+
+        for (opt in opts) {
+            if (opt.templateId in presentIds) {
+                log.info("EHRbase: template '{}' already present, skipping", opt.templateId)
+                continue
+            }
+            val xml = read(opt.classpathFile)
+            cdr.uploadOpt(xml)
+            log.info("EHRbase: uploaded OPT '{}'", opt.templateId)
+        }
+    }
+
+    private suspend fun uploadOptsToOpenFhir() {
         val existing = openFhir.listOpts()
-        val normalized = templateId.replace(' ', '_')
-        val already = existing.any { entry ->
-            val obj = entry as? JsonObject ?: return@any false
-            val candidates = listOfNotNull(
+        val presentIds = existing.flatMap { entry ->
+            val obj = entry as? JsonObject ?: return@flatMap emptyList()
+            listOfNotNull(
                 (obj["templateId"] as? JsonPrimitive)?.content,
                 (obj["originalTemplateId"] as? JsonPrimitive)?.content,
                 (obj["displayTemplateId"] as? JsonPrimitive)?.content,
                 (obj["template_id"] as? JsonPrimitive)?.content,
                 ((obj["metadata"] as? JsonObject)?.get("name") as? JsonPrimitive)?.content,
             )
-            templateId in candidates || normalized in candidates
+        }.toSet()
+
+        for (opt in opts) {
+            val normalized = opt.templateId.replace(' ', '_')
+            if (opt.templateId in presentIds || normalized in presentIds) {
+                log.info("openFHIR: template '{}' already present, skipping", opt.templateId)
+                continue
+            }
+            val xml = read(opt.classpathFile)
+            openFhir.postOpt(xml)
+            log.info("openFHIR: uploaded OPT '{}'", opt.templateId)
         }
-        if (already) {
-            log.info("openFHIR: template '{}' already present, skipping", templateId)
-            return
-        }
-        val xml = read("bootstrap/ch-vacd-immunization-administration.v1-alpha.opt")
-        openFhir.postOpt(xml)
-        log.info("openFHIR: uploaded OPT '{}'", templateId)
     }
 
     private fun yamlName(entry: JsonObject): String? =
         ((entry["metadata"] as? JsonObject)?.get("name") as? JsonPrimitive)?.content
             ?: (entry["name"] as? JsonPrimitive)?.content
 
-    private suspend fun uploadContext() {
-        val existing = openFhir.listContexts()
-        val already = existing.any { (it as? JsonObject)?.let(::yamlName) == "ch-vacd-immunization.context" }
-        if (already) {
-            log.info("openFHIR: context already present, skipping")
+    private suspend fun uploadContexts() {
+        val existingCount = openFhir.listContexts().size
+        if (existingCount >= contextFiles.size) {
+            log.info("openFHIR: {} context(s) already present, skipping", existingCount)
             return
         }
-        val yaml = read("bootstrap/ch-vacd-immunization.context.yml")
-        openFhir.postContextYaml(yaml)
-        log.info("openFHIR: uploaded context")
+        for (file in contextFiles) {
+            val yaml = read(file)
+            openFhir.postContextYaml(yaml)
+            log.info("openFHIR: uploaded context from {}", file)
+        }
     }
 
-    private suspend fun uploadModel() {
+    private suspend fun uploadModels() {
         val existing = openFhir.listModels()
-        val already = existing.any { (it as? JsonObject)?.let(::yamlName) == "ACTION.medication.v1" }
-        if (already) {
-            log.info("openFHIR: model already present, skipping")
-            return
+        val presentNames = existing.mapNotNull { (it as? JsonObject)?.let(::yamlName) }.toSet()
+
+        for (model in models) {
+            if (model.metadataName in presentNames) {
+                log.info("openFHIR: model '{}' already present, skipping", model.metadataName)
+                continue
+            }
+            val yaml = read(model.classpathFile)
+            openFhir.postModelYaml(yaml)
+            log.info("openFHIR: uploaded model '{}'", model.metadataName)
         }
-        val yaml = read("bootstrap/ACTION.medication.v1.yml")
-        openFhir.postModelYaml(yaml)
-        log.info("openFHIR: uploaded model")
     }
 }

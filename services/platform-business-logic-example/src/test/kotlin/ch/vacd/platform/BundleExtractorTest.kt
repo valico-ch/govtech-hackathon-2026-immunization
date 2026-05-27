@@ -30,12 +30,25 @@ class BundleExtractorTest {
         val out = BundleExtractor.peel(input)
         assertEquals("Composition",
             (out.composition["resourceType"] as JsonPrimitive).content)
+        assertEquals(1, out.immunizations.size)
         assertEquals("Immunization",
-            (out.immunization["resourceType"] as JsonPrimitive).content)
+            (out.immunizations[0]["resourceType"] as JsonPrimitive).content)
         assertNotNull(out.patient)
         assertEquals(1, out.practitioners.size)
         assertEquals(1, out.organizations.size)
         assertEquals(1, out.practitionerRoles.size)
+    }
+
+    @Test fun `peels a V2 multi-immunization Bundle`() {
+        val input = Json.parseToJsonElement(loadExample("06-immunization-administration-v2-3dose-mixed.json"))
+        val out = BundleExtractor.peel(input)
+        assertEquals("Composition",
+            (out.composition["resourceType"] as JsonPrimitive).content)
+        assertTrue(out.immunizations.size >= 2, "expected multiple immunizations, got ${out.immunizations.size}")
+        out.immunizations.forEach { imm ->
+            assertEquals("Immunization", (imm["resourceType"] as JsonPrimitive).content)
+        }
+        assertNotNull(out.patient)
     }
 
     @Test fun `rejects a bare Immunization`() {

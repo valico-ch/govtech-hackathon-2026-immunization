@@ -10,15 +10,11 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
 HERE = Path(__file__).parent
-# Output is a repo deliverable, not a build artefact. Write it (and read the
-# screenshots) under docs/demo/ so this script and the README agree on one
-# canonical location. HERE.parents[2] = repo root
-# (services/platform-business-logic-example/playwright/..).
 DEMO_DIR = HERE.parents[2] / "docs" / "demo"
 SHOTS = DEMO_DIR / "shots"
 OUT = DEMO_DIR / "ch-vacd-pattern-a-tracer-bullet.pdf"
 
-PAGE_W, PAGE_H = landscape(A4)            # 842 x 595 pt
+PAGE_W, PAGE_H = landscape(A4)
 MARGIN_X = 18 * mm
 MARGIN_Y = 14 * mm
 BG = HexColor("#0f1218")
@@ -41,7 +37,7 @@ def header(c, title, subtitle=None):
     c.setFillColor(MUTED)
     c.setFont("Helvetica", 8)
     c.drawRightString(PAGE_W - MARGIN_X, PAGE_H - MARGIN_Y + 6,
-                      "Pattern A — Platform Business Logic Example (tracer bullet)")
+                      "Pattern A — Platform Business Logic Example")
     c.setFillColor(TEXT)
     c.setFont("Helvetica-Bold", 22)
     c.drawString(MARGIN_X, PAGE_H - MARGIN_Y - 18, title)
@@ -61,7 +57,6 @@ def footer(c, page_no, total):
 
 
 def fit_image(c, img_path, box):
-    """Draw image at img_path inside box (x, y, w, h) preserving aspect."""
     x, y, w, h = box
     img = ImageReader(img_path)
     iw, ih = img.getSize()
@@ -100,12 +95,24 @@ def add_caption(c, text):
     c.drawString(MARGIN_X, MARGIN_Y + 6, text)
 
 
-PAGES = []  # list of (renderer_fn, page_meta)
+def screenshot_page(title, subtitle, image_path, caption):
+    def renderer(c):
+        slide_title(c, title, subtitle)
+        img_top_y = PAGE_H - MARGIN_Y - 62
+        img_bottom_y = MARGIN_Y + 22
+        img_box = (MARGIN_X, img_bottom_y, PAGE_W - 2 * MARGIN_X, img_top_y - img_bottom_y)
+        c.setFillColor(PANEL)
+        c.setStrokeColor(HexColor("#2a3142"))
+        c.setLineWidth(0.7)
+        c.roundRect(img_box[0] - 4, img_box[1] - 4, img_box[2] + 8, img_box[3] + 8,
+                    6, stroke=1, fill=1)
+        fit_image(c, image_path, img_box)
+        add_caption(c, caption)
+    return renderer
 
 
 def cover_page(c):
     fill_bg(c)
-    # Big title
     c.setFillColor(ACCENT2)
     c.setFont("Helvetica-Bold", 12)
     c.drawString(MARGIN_X, PAGE_H - MARGIN_Y - 10, "●  CH VACD — Swiss Vaccination Showcase")
@@ -114,103 +121,45 @@ def cover_page(c):
     c.drawString(MARGIN_X, PAGE_H - MARGIN_Y - 60, "Pattern A")
     c.setFillColor(TEXT)
     c.setFont("Helvetica-Bold", 28)
-    c.drawString(MARGIN_X, PAGE_H - MARGIN_Y - 92, "Immunization Write Path — Tracer Bullet")
+    c.drawString(MARGIN_X, PAGE_H - MARGIN_Y - 92, "Immunization Write Path — V2 FHIRconnect")
     c.setFillColor(MUTED)
     c.setFont("Helvetica", 13)
     c.drawString(MARGIN_X, PAGE_H - MARGIN_Y - 118,
-                 "End-to-end FHIR (CH VACD Immunization) → openEHR Composition → EHRbase, with feeder_audit retention.")
-    # Body
+                 "Full FHIR Bundle → COMPOSITION-level openFHIR mapping → openEHR → EHRbase, with ~20 mapped fields.")
     y = PAGE_H - MARGIN_Y - 158
     bullets = [
-        "• Platform example (Kotlin + Ktor) — single brain orchestrating the stack",
+        "• Platform example (Kotlin + Ktor) — orchestrates the stack",
         "• fhir-server-1 (HAPI 8.8.1) — demographics + directory store (Patient / Practitioner / Organization)",
-        "• openFHIR 2.2.1 — stateless FHIR ↔ openEHR mapping engine (FHIRconnect YAMLs)",
+        "• openFHIR 2.2.3 — bidirectional FHIR ↔ openEHR mapping engine (FHIRconnect V2 YAMLs)",
         "• EHRbase 2.31.0 — openEHR Composition store + AQL",
         "",
-        "Scope: 7 mapped Immunization fields (Tier 1 tracer bullet)",
-        "Out of scope: read path, profile validation, terminology server, SMART/EPR auth.",
+        "V2 mapping: COMPOSITION-level, ~20 ACTION fields, multi-immunization Bundles,",
+        "  vaccination protocol, adverse reactions, performer, verification status, feeder audit.",
+        "",
+        "Bidirectional mapping loaded (admin + vaccination-record); write path tested end-to-end.",
     ]
     slide_text(c, bullets, MARGIN_X, y, font="Helvetica", size=12, color=TEXT, leading=18)
-    # Body footer (sits above the standard footer line)
     c.setFillColor(MUTED)
     c.setFont("Helvetica-Oblique", 10)
-    c.drawString(MARGIN_X, MARGIN_Y + 32,
-                 "Built as a Pragmatic Programmer 'tracer bullet': minimal slice, real infrastructure end-to-end.")
     c.drawString(MARGIN_X, MARGIN_Y + 16,
-                 "Hackathon harness — see services/platform-business-logic-example/ and docs/architecture/patterns.md")
-
-
-def stack_page(c):
-    slide_title(c, "Stack at a Glance",
-                "Five services on a shared vacd-net bridge; the platform layer is the only participant-built component.")
-    y_top = PAGE_H - MARGIN_Y - 60
-    rows = [
-        ("Service", "Role", "URL inside vacd-net", "Auth"),
-        ("Platform example", "Platform brain (Kotlin/Ktor)", "http://localhost:8080", "—"),
-        ("fhir-server-1", "HAPI 8.8.1 — CH VACD ref. server, demographics + directory",
-         "http://fhir-server-1:9111/ch-vacd-api-reference-server/fhir", "—"),
-        ("openfhir", "openFHIR 2.2.1 — FHIR ↔ openEHR mapping (FHIRconnect)",
-         "http://openfhir:8083", "—"),
-        ("openfhir-mongo", "Mongo 7.0 — openFHIR config store (templates, contexts, models)",
-         "(internal)", "admin/admin (internal)"),
-        ("ehrbase", "EHRbase 2.31.0 — openEHR Composition store, AQL",
-         "http://ehrbase:8080/ehrbase/rest/openehr/v1", "ehrbase-user / SuperSecret…"),
-        ("ehrbase-db", "Postgres 16 — EHRbase backing store", "(internal)", "internal"),
-    ]
-    col_x = [MARGIN_X, MARGIN_X + 100, MARGIN_X + 360, MARGIN_X + 690]
-    col_w = [98, 250, 320, 110]
-    line_h = 30
-    y = y_top
-    c.setFont("Helvetica-Bold", 10)
-    c.setFillColor(MUTED)
-    for x, t in zip(col_x, rows[0]):
-        c.drawString(x, y, t)
-    y -= 16
-    divider(c, y + 8)
-    for r in rows[1:]:
-        c.setFont("Helvetica-Bold", 10.5)
-        c.setFillColor(TEXT)
-        c.drawString(col_x[0], y, r[0])
-        c.setFont("Helvetica", 9.5)
-        c.setFillColor(TEXT)
-        for line, x, w in zip(r[1:], col_x[1:], col_w[1:]):
-            wrap_text(c, line, x, y, w)
-        y -= line_h
-    add_caption(c, "Reference: docs/architecture/patterns.md  ·  docker-compose.yml")
-
-
-def wrap_text(c, text, x, y, max_w, leading=11.5):
-    """Very small wrap helper."""
-    words = text.split()
-    line = ""
-    cur_y = y
-    for w in words:
-        trial = (line + " " + w).strip()
-        if c.stringWidth(trial, "Helvetica", 9.5) <= max_w:
-            line = trial
-        else:
-            c.drawString(x, cur_y, line)
-            cur_y -= leading
-            line = w
-    if line:
-        c.drawString(x, cur_y, line)
+                 "Hackathon harness — services/platform-business-logic-example/  ·  docs/architecture/patterns.md")
 
 
 def flow_page(c):
-    slide_title(c, "The Write Flow",
-                "POST /Immunization → fan out → ensure EHR → openFHIR convert → enrich → store")
+    slide_title(c, "The Write Flow (V2)",
+                "POST /Immunization — full Bundle in, COMPOSITION-level mapping, multi-immunization support")
     steps = [
-        ("1.", "Client", "POSTs a CH VACD Immunization (or document Bundle)", "to platform /Immunization"),
+        ("1.", "Client", "POSTs a CH VACD Immunization Administration Document Bundle", "to platform /Immunization"),
         ("2.", "Demographics fan-out", "Patient + Practitioner + Organization → fhir-server-1 (HAPI)",
          "Platform captures the HAPI-assigned ids"),
         ("3.", "EHR resolution", "Find-or-create openEHR EHR in EHRbase",
          "Linked via EHR_STATUS.subject.external_ref (namespace=ch-vacd, id=<Patient.id>)"),
-        ("4.", "Conversion", "openFHIR /openfhir/toopenehr?templateId=…&flat=true",
-         "Returns FLAT openEHR Composition shaped by ch-vacd-immunization administration.v1-alpha"),
-        ("5.", "Feeder audit", "Platform injects /_feeder_audit/original_content = verbatim FHIR JSON",
-         "Per Konkretisierung §13 — legal provenance"),
+        ("4.", "V2 Conversion", "Full Bundle → openFHIR /openfhir/toopenehr (COMPOSITION-level mapping)",
+         "openFHIR resolves urn:uuid refs, navigates sections, maps ~20 fields per Immunization"),
+        ("5.", "Enrich", "Platform adds ctx/ metadata (language, territory, composer) for EHRbase",
+         "feederAudit handled by V2 mapping — putIfAbsent fallback for Konkretisierung §13"),
         ("6.", "Persist", "POST /ehr/{ehrId}/composition?format=FLAT&templateId=…",
-         "Returns 201 + compositionUid; platform relays as 201 Created"),
+         "Returns 201 + compositionUid; one Composition may contain multiple ACTION entries"),
     ]
     y = PAGE_H - MARGIN_Y - 76
     for n, who, what, detail in steps:
@@ -230,91 +179,25 @@ def flow_page(c):
     add_caption(c, "Pseudocode: services/platform-business-logic-example/src/main/kotlin/ch/vacd/platform/ingestion/ImmunizationIngest.kt")
 
 
-def fields_page(c):
-    slide_title(c, "Seven Mapped Fields (Tier 1)",
-                "Deliberately the alpha-safe subset — avoids every known alpha-quality issue in the template.")
-    rows = [
-        ("#", "FHIR path", "openEHR path", "Type"),
-        ("1", "Immunization.status = 'completed'",
-         "ism_transition/{careflow_step=at0006, current_state=245}", "manual"),
-        ("2", "Immunization.vaccineCode",
-         "description[at0017]/items[at0020]", "CODEABLE_CONCEPT"),
-        ("3", "Immunization.occurrenceDateTime",
-         "time", "DATETIME"),
-        ("4", "Immunization.lotNumber",
-         "description[at0017]/items[CLUSTER.medication.v2]/items[at0150]", "STRING"),
-        ("5", "Immunization.site",
-         "description[at0017]/items[at0140]/items[at0141]", "CODEABLE_CONCEPT"),
-        ("6", "Immunization.route",
-         "description[at0017]/items[at0140]/items[at0147]", "CODEABLE_CONCEPT"),
-        ("7", "Immunization.protocolApplied[0].doseNumberPositiveInt",
-         "description[at0017]/items[at0025]", "INTEGER"),
-    ]
-    y = PAGE_H - MARGIN_Y - 70
-    # Wider FHIR column to accommodate the long protocolApplied path on row 7.
-    col_x = [MARGIN_X, MARGIN_X + 22, MARGIN_X + 310, MARGIN_X + 680]
-    c.setFillColor(MUTED)
-    c.setFont("Helvetica-Bold", 10)
-    for x, h in zip(col_x, rows[0]):
-        c.drawString(x, y, h)
-    y -= 14
-    divider(c, y + 8)
-    y -= 6
-    for r in rows[1:]:
-        c.setFillColor(TEXT)
-        c.setFont("Helvetica", 10)
-        c.drawString(col_x[0], y, r[0])
-        # Shrink font if path is long so it doesn't overflow the next column.
-        fhir_font = 8.5 if len(r[1]) > 38 else 9
-        c.setFont("Courier", fhir_font)
-        c.drawString(col_x[1], y, r[1])
-        oe_font = 8.5 if len(r[2]) > 46 else 9
-        c.setFont("Courier", oe_font)
-        c.setFillColor(HexColor("#cdd6e4"))
-        c.drawString(col_x[2], y, r[2])
-        c.setFont("Helvetica-Bold", 9)
-        c.setFillColor(ACCENT2)
-        c.drawString(col_x[3], y, r[3])
-        y -= 28
-    add_caption(c, "model: services/platform-business-logic-example/src/main/resources/bootstrap/ACTION.medication.v1.yml")
-
-
-def screenshot_page(title, subtitle, image_path, caption):
-    def renderer(c):
-        slide_title(c, title, subtitle)
-        # image box
-        img_top_y = PAGE_H - MARGIN_Y - 62
-        img_bottom_y = MARGIN_Y + 22
-        img_box = (MARGIN_X, img_bottom_y, PAGE_W - 2 * MARGIN_X, img_top_y - img_bottom_y)
-        # subtle background panel
-        c.setFillColor(PANEL)
-        c.setStrokeColor(HexColor("#2a3142"))
-        c.setLineWidth(0.7)
-        c.roundRect(img_box[0] - 4, img_box[1] - 4, img_box[2] + 8, img_box[3] + 8,
-                    6, stroke=1, fill=1)
-        fit_image(c, image_path, img_box)
-        add_caption(c, caption)
-    return renderer
-
-
 def summary_page(c):
-    slide_title(c, "What's Proven and What's Next",
-                "Acceptance criteria validated end-to-end against the live stack.")
+    slide_title(c, "What's Proven",
+                "All validated end-to-end against the live stack with integration tests + AQL queries.")
     y = PAGE_H - MARGIN_Y - 70
     c.setFillColor(ACCENT2)
     c.setFont("Helvetica-Bold", 12)
     c.drawString(MARGIN_X, y, "Proven (all green)")
     y -= 18
     proven = [
-        "✓ Stack comes up end-to-end on docker compose; platform example fat JAR < 20 MB",
-        "✓ Bootstrap is idempotent (OPT + context.yml + model.yml on every restart, no duplicates)",
-        "✓ POST /Immunization returns 201 + compositionUid (warm path < 200 ms)",
-        "✓ feeder_audit.original_content contains the verbatim FHIR JSON (Konkretisierung §13)",
-        "✓ EHRbase composition queryable via AQL by ehr_id",
-        "✓ Patient + Practitioner + Organization landed in HAPI from the document Bundle",
-        "✓ Strict mode: bare Immunization (non-document Bundle) rejected with 400 + OperationOutcome",
-        "✓ Demo UI drives all three canonical CH VACD document Bundles in Chromium",
-        "✓ Unit + integration tests pass against the live stack",
+        "✓ V2 FHIRconnect mapping loaded as bidirectional unit (2 OPTs, 2 contexts, 4 models)",
+        "✓ openFHIR 2.2.3 COMPOSITION-level mapping: full Bundle in, ~20 fields per Immunization",
+        "✓ Multi-immunization Bundles (2-dose, 3-dose series) → single Composition, multiple ACTIONs",
+        "✓ Mixed vaccines (Boostrix Polio + FSME-Immun) in one Composition — different codes per ACTION",
+        "✓ AQL roundtrip: vaccineCode, time, ISM transition, doseNumber verified via queries",
+        "✓ feeder_audit: V2 mapping embeds original FHIR at COMPOSITION + ACTION level",
+        "✓ Performer participation: openFHIR maps actor ref, platform fills required RM fields",
+        "✓ V1 single-immunization Bundles still work (backward compatible)",
+        "✓ Demographics (Patient/Practitioner/Organization) landed in HAPI from document Bundles",
+        "✓ 12/12 tests pass (8 unit + 4 integration)",
     ]
     c.setFillColor(TEXT)
     c.setFont("Helvetica", 10.5)
@@ -322,16 +205,16 @@ def summary_page(c):
         c.drawString(MARGIN_X + 8, y, line)
         y -= 16
 
-    y -= 16
+    y -= 12
     c.setFillColor(HexColor("#ffa657"))
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(MARGIN_X, y, "Deliberately out of scope (left to participating teams)")
+    c.drawString(MARGIN_X, y, "Next steps")
     y -= 18
     next_up = [
-        "Read path — GET /Immunization/{uid}, search by patient, Bundle re-hydration from fhir-server-1",
-        "Profile validation — HAPI FhirValidator + CH VACD StructureDefinitions package",
-        "Terminology lookups — live tx.fhir.ch/r4 calls for code system / value set checks",
-        "Pattern B — inbound/outbound connectors and the sync-state table that goes with them",
+        "Read path — vaccination-record template + tofhir mapping (loaded, not yet tested)",
+        "Profile validation — HAPI FhirValidator + CH VACD StructureDefinitions",
+        "Terminology lookups — live tx.fhir.ch/r4 for code system validation",
+        "Pattern B — inbound/outbound connectors for producer/consumer split",
     ]
     c.setFillColor(TEXT)
     c.setFont("Helvetica", 10.5)
@@ -341,34 +224,50 @@ def summary_page(c):
     add_caption(c, "Reference: services/platform-business-logic-example/  ·  docs/architecture/patterns.md")
 
 
-# Build the deck
-PAGES = [
-    cover_page,
-    stack_page,
-    flow_page,
-    fields_page,
-    screenshot_page(
+PAGES = [cover_page, flow_page]
+
+# Initial screenshot
+initial = SHOTS / "00-initial.png"
+if initial.exists():
+    PAGES.append(screenshot_page(
         "Demo UI — initial state",
-        "/demo loads with the Boostrix example pre-populated.",
-        SHOTS / "00-initial.png",
-        "screenshot: 00-initial.png",
-    ),
-]
+        "/demo loads with the first example pre-populated.",
+        initial, "screenshot: 00-initial.png"))
 
-EXAMPLE_PAGES = [
+# V1 examples (single-immunization)
+V1_EXAMPLES = [
     ("01-immunization-administration-boostrix",
-     "Boostrix (dTpa-IPV booster) — CH VACD Bundle/document",
-     "The verbatim IG seed (fhir.ch/ig/ch-vacd/Bundle-1-1-ImmunizationAdministration); deltoid IM."),
+     "Boostrix (dTpa) — single immunization",
+     "V1 example: Swissmedic 637, deltoid IM, 1 Immunization in Bundle."),
     ("02-immunization-administration-comirnaty",
-     "Comirnaty (COVID-19 mRNA) — CH VACD Bundle/document",
-     "Derived variant: Swissmedic 68225 + SNOMED 840539006 (COVID-19)."),
+     "Comirnaty (COVID-19 mRNA) — single immunization",
+     "V1 example: Swissmedic 68225, SNOMED 840539006 (COVID-19)."),
     ("03-immunization-administration-priorix",
-     "Priorix (MMR) — CH VACD Bundle/document",
-     "Derived variant: Swissmedic 615 + SNOMED 14189004/36989005/36653000."),
+     "Priorix (MMR) — single immunization",
+     "V1 example: Swissmedic 615, SNOMED 14189004/36989005/36653000."),
 ]
 
-for n, (slug, title, subtitle) in enumerate(EXAMPLE_PAGES, start=1):
-    done_n = n * 2  # numbering: 02-done, 04-done, 06-done, …
+for n, (slug, title, subtitle) in enumerate(V1_EXAMPLES, start=1):
+    done_n = n * 2
+    img = SHOTS / f"{done_n:02d}-{slug}-done.png"
+    if img.exists():
+        PAGES.append(screenshot_page(title, subtitle, img, f"screenshot: {img.name}"))
+
+# V2 examples (multi-immunization)
+V2_EXAMPLES = [
+    ("04-immunization-administration-v2-2dose-comirnaty",
+     "V2: 2-dose Comirnaty series",
+     "Multi-immunization Bundle: 2 Comirnaty doses → 1 Composition, 2 ACTION entries."),
+    ("05-immunization-administration-v2-3dose-comirnaty",
+     "V2: 3-dose Comirnaty series",
+     "Multi-immunization Bundle: 3 Comirnaty 30μg doses → 1 Composition, 3 ACTION entries."),
+    ("06-immunization-administration-v2-3dose-mixed",
+     "V2: Mixed vaccines (Boostrix Polio + FSME)",
+     "Multi-immunization Bundle: 2× Boostrix Polio + 1× FSME-Immun Junior → 3 ACTIONs, different vaccine codes."),
+]
+
+for n, (slug, title, subtitle) in enumerate(V2_EXAMPLES, start=4):
+    done_n = n * 2
     img = SHOTS / f"{done_n:02d}-{slug}-done.png"
     if img.exists():
         PAGES.append(screenshot_page(title, subtitle, img, f"screenshot: {img.name}"))

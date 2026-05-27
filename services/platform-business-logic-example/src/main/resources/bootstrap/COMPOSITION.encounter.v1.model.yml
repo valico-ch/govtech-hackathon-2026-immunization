@@ -1,0 +1,182 @@
+grammar: FHIRConnect/v1.0.0
+type: model
+metadata:
+  name: COMPOSITION.encounter.v1
+  version: 0.0.1-alpha
+spec:
+  system: FHIR
+  version: R4
+  openEhrConfig:
+    archetype: openEHR-EHR-COMPOSITION.encounter.v1
+    revision: 1.0.3
+  fhirConfig:
+    structureDefinition: http://hl7.org/fhir/StructureDefinition/Composition
+
+mappings:
+  - name: meta
+    with:
+      fhir: "$resource.meta"
+      openehr: "$composition"
+    manual:
+      - name: "profile"
+        fhir:
+          - path: "profile"
+            value: "http://fhir.ch/ig/ch-vacd/StructureDefinition/ch-vacd-composition-immunization-administration"
+
+  - name: title
+    with:
+      fhir: "$resource"
+      openehr: "$composition"
+    manual:
+      - name: "title"
+        fhir:
+          - path: "title"
+            value: "Immunization Administration"
+
+  - name: status
+    with:
+      fhir: "$resource"
+      openehr: "$composition"
+    manual:
+      - name: "status"
+        fhir:
+          - path: "status"
+            value: "final"
+
+  - name: type
+    with:
+      fhir: "$resource.type.coding"
+      openehr: "$composition"
+    manual:
+      - name: "code"
+        fhir:
+          - path: "code"
+            value: "41000179103"
+      - name: "system"
+        fhir:
+          - path: "system"
+            value: "http://snomed.info/sct"
+      - name: "display"
+        fhir:
+          - path: "display"
+            value: "Immunization record"
+
+  - name: category
+    with:
+      fhir: "$resource.category.coding"
+      openehr: "$composition"
+    manual:
+      - name: "code"
+        fhir:
+          - path: "code"
+            value: "urn:che:epr:ch-vacd:immunization-administration:2022"
+      - name: "system"
+        fhir:
+          - path: "system"
+            value: "urn:oid:2.16.756.5.30.1.127.3.10.10"
+
+  - name: confidentiality
+    with:
+      fhir: "$resource.confidentiality"
+      openehr: "$composition"
+    followedBy:
+      mappings:
+        - name: confidentialityCode
+          with:
+            fhir: "$fhirRoot"
+            openehr: "$composition"
+          manual:
+            - name: "confidentiality"
+              fhir:
+                - path: "$fhirRoot"
+                  value: "N"
+        - name: confidentialityExtension
+          with:
+            fhir: "extension"
+            openehr: "$composition"
+          followedBy:
+            mappings:
+              - name: extensionValue
+                with:
+                  fhir: "value.as(CodeableConcept).coding"
+                  openehr: "$composition"
+                manual:
+                  - name: "code"
+                    fhir:
+                      - path: "code"
+                        value: "17621005"
+                  - name: "system"
+                    fhir:
+                      - path: "system"
+                        value: "http://snomed.info/sct"
+                  - name: "display"
+                    fhir:
+                      - path: "display"
+                        value: "Normal (qualifier value)"
+              - name: extensionUrl
+                with:
+                  fhir: "$fhirRoot"
+                  openehr: "$composition"
+                manual:
+                  - name: "extensionUrl"
+                    fhir:
+                      - path: "url"
+                        value: "http://fhir.ch/ig/ch-core/StructureDefinition/ch-ext-epr-confidentialitycode"
+
+  - name: "sectionImmunizationAdministration"
+    with:
+      fhir: "$resource.section"
+      openehr: "$composition"
+    fhirCondition:
+      targetRoot: "$resource.section"
+      targetAttribute: "code.coding.code"
+      operator: "one of"
+      criteria: "11369-6"
+    followedBy:
+      mappings:
+        - name: "entry"
+          with:
+            fhir: "entry"
+            openehr: "$reference/content[openEHR-EHR-ACTION.medication.v1]"
+          reference:
+            resourceType: "Immunization"
+            mappings:
+              - name: "allergy"
+                with:
+                  fhir: "$fhirRoot"
+                  openehr: "$composition/content[openEHR-EHR-ACTION.medication.v1]"
+                slotArchetype: "ACTION.medication.v1"
+                
+        - name: "title"
+          with:
+            fhir: "$fhirRoot"
+            openehr: "$composition"
+          manual:
+            - name: "manualTitle"
+              fhir:
+                - path: "title"
+                  value: "Immunization Administration"
+      
+        - name: "code"
+          with:
+            fhir: "code.coding"
+            openehr: "$composition"
+          manual:
+            - name: "manualSystem"
+              fhir:
+                - path: "system"
+                  value: "http://loinc.org"
+            - name: "manualCode"
+              fhir:
+                - path: "code"
+                  value: "11369-6"
+            - name: "manualDisplay"
+              fhir:
+                - path: "display"
+                  value: "Hx of Immunization"
+
+  - name: "feederAudit"
+    with:
+      fhir: "$resource"
+      openehr: "$composition/feeder_audit"
+    mappingCode: "feederAudit(fhir)"

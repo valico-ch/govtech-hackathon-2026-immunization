@@ -1,0 +1,209 @@
+# Swiss GovTech Hackathon 2026 — VACD harness backing services.
+#
+# All backing services run default-on; the harness does not pick a topology.
+# Teams build the platform layer themselves (see docs/architecture/patterns.md
+# for Pattern A / Pattern B references and
+# services/platform-business-logic-example/ for one example implementation).
+# The platform layer is NOT included by default — the dev container forwards
+# ports 3000/3001/8000/8001/8080/8081 for participants to run their own
+# service on. An example platform (Pattern A tracer bullet) is available
+# behind the `example` profile: `docker compose --profile example up --wait`.
+#
+# One CH VACD FHIR server runs by default on 9111. A second identical
+# instance for 9112 is defined below but commented out — teams that want
+# a producer/consumer split (typically Pattern B) can uncomment it and
+# `docker compose up -d fhir-server-2`. The dev container forwards both
+# 9111 and 9112 either way.
+
+name: vacd-hackathon
+
+services:
+  # CH VACD FHIR API reference server — instance 1.
+  # Multi-stage build: Maven runs inside Docker, no local mvn/java prereqs.
+  # H2 in-memory, no volume.
+  fhir-server-1:
+    build:
+      context: ./services/ch-vacd-api-reference-server
+    image: vacd/ch-vacd-api-reference-server:dev
+    container_name: vacd-fhir-server-1
+    ports:
+      - "9111:9111"
+<<<<<<< HEAD
+    volumes:
+      - ./Docker/config:/config
+      - ./Docker/database:/database
+=======
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9111/ch-vacd-api-reference-server/fhir/metadata | grep -q CapabilityStatement"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+>>>>>>> 24c9131 (renamed pbll to plaform business logic example, inmproved first time build setup and devcontainer config. also copied in updated docs)
+
+  # Optional second instance — uncomment to enable.
+  # Same image as fhir-server-1; only fhir-server-1 owns the build, so
+  # bring it up at least once before starting this one to avoid a
+  # parallel-build race on the shared image tag. SERVER_PORT moves Tomcat
+  # to 9112 so internal=external matches and startup logs match the URL
+  # participants hit.
+  #
+  # fhir-server-2:
+  #   image: vacd/ch-vacd-api-reference-server:dev
+  #   pull_policy: never
+  #   container_name: vacd-fhir-server-2
+  #   environment:
+  #     SERVER_PORT: "9112"
+  #   ports:
+  #     - "9112:9112"
+
+  # openEHR Clinical Data Repository.
+  # BASIC auth instead of upstream's Keycloak setup — keeps the working set
+  # lean and removes a moving part participants don't need. Override via
+  # SECURITY_AUTHTYPE=OAUTH at compose time if a team wants to bring their
+  # own IdP. Internal container port is 8080 (Spring Boot default); host
+  # port is 8082 to leave 8080 free for participants' platform layer.
+  ehrbase:
+    image: ehrbase/ehrbase:2.31.0
+    container_name: vacd-ehrbase
+    depends_on:
+      ehrbase-db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://ehrbase-db:5432/ehrbase
+      DB_USER_ADMIN: ehrbase
+      DB_PASS_ADMIN: ehrbase
+      DB_USER: ehrbase_restricted
+      DB_PASS: ehrbase_restricted
+      SECURITY_AUTHTYPE: BASIC
+      SECURITY_AUTHUSER: ehrbase-user
+      SECURITY_AUTHPASSWORD: SuperSecretPassword
+      SECURITY_AUTHADMINUSER: ehrbase-admin
+      SECURITY_AUTHADMINPASSWORD: EvenMoreSecretPassword
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --header='Authorization: Basic ZWhyYmFzZS11c2VyOlN1cGVyU2VjcmV0UGFzc3dvcmQ=' http://localhost:8080/ehrbase/rest/status | grep -q ehrbase_version"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+
+  # Pre-configured Postgres for EHRbase. This image (ehrbase/ehrbase-v2-postgres)
+  # bakes in the upstream createdb-docker.sql, so on first start it creates
+  # the `ehrbase` database, roles (ehrbase admin + ehrbase_restricted), the
+  # `ehr` and `ext` schemas, and the uuid-ossp extension automatically from
+  # the EHRBASE_* env vars below. No SQL mount needed.
+  # Port 5432 is NOT exposed on the host — only ehrbase reaches it over the
+  # compose default network.
+  ehrbase-db:
+    image: ehrbase/ehrbase-v2-postgres:16.2
+    container_name: vacd-ehrbase-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      EHRBASE_USER_ADMIN: ehrbase
+      EHRBASE_PASSWORD_ADMIN: ehrbase
+      EHRBASE_USER: ehrbase_restricted
+      EHRBASE_PASSWORD: ehrbase_restricted
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # FHIR ⇄ openEHR mapping engine. Persists FHIRconnect YAML mappings in
+  # Mongo. Pinned to :2.2.1 (latest at 2026-05-04). Upstream does not
+  # publish arm64 for tagged releases — only the moving :build tag is
+  # multi-arch — so we pin amd64 explicitly. On Apple Silicon this runs
+  # under QEMU emulation: ~30–60 s slower startup but functional. If the
+  # emulation pain becomes a problem we can switch to build-from-source
+  # the same way we do for the FHIR server.
+  # SERVER_PORT moves Tomcat to 8083 so internal=external, matching the
+  # fhir-server-1 convention and what participants hit on the host.
+  openfhir:
+    image: openfhir/openfhir:2.2.3
+    platform: linux/amd64
+    container_name: vacd-openfhir
+    depends_on:
+      openfhir-mongo:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: "8083"
+      SPRING_DATA_MONGODB_URI: "mongodb://admin:admin@openfhir-mongo:27017/openfhir?authSource=admin"
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+
+  # Example platform layer — Pattern A tracer bullet (Kotlin/Ktor).
+  # Profile-gated: only starts with `docker compose --profile example up`.
+  # Not part of the default harness — participants build their own platform.
+  platform-example:
+    profiles: ["example"]
+    build:
+      context: ./services/platform-business-logic-example
+      additional_contexts:
+        examples: ./examples
+    image: vacd/platform-business-logic-example:dev
+    container_name: vacd-platform-example
+    depends_on:
+      fhir-server-1:
+        condition: service_healthy
+      ehrbase:
+        condition: service_healthy
+      openfhir:
+        condition: service_healthy
+    environment:
+      FHIR_SERVER_1_URL: "http://fhir-server-1:9111/ch-vacd-api-reference-server/fhir"
+      MAPPER_URL: "http://openfhir:8083"
+      CDR_URL: "http://ehrbase:8080/ehrbase/rest/openehr/v1"
+      CDR_USER: "ehrbase-user"
+      CDR_PASS: "SuperSecretPassword"
+      TEMPLATE_ID: "ch-vacd-immunization administration.v1-alpha"
+      EXAMPLES_DIR: "/examples"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz | grep -q '\"ok\": true'"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+
+  # Mongo for openFHIR. Internal-only (port 27017 not published). openFHIR
+  # is the only client of this Mongo instance, so we skip the usual
+  # init-mongo.js-creates-a-restricted-user dance and let openFHIR connect
+  # with admin creds via ?authSource=admin. Mongo lazily creates the
+  # `openfhir` database on first write — no init script needed. Removing
+  # that script also avoids the bind-mount-from-dev-container path issue
+  # docker-outside-of-docker has with host-relative paths.
+  openfhir-mongo:
+    image: mongo:7.0
+    container_name: vacd-openfhir-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+# All backing services join `vacd-net`, an external user-defined bridge that
+# the dev container also joins (via `--network=vacd-net` in
+# .devcontainer/devcontainer.json runArgs, with `initializeCommand` creating
+# the network on the host if it doesn't exist). This puts the dev container
+# and the compose services on the same wire, so participants' platform layer
+# addresses backing services by service name (http://ehrbase:8080, http://fhir-server-1:9111,
+# etc.) instead of host.docker.internal — identical behaviour on macOS/Windows/Linux,
+# no port-forwarding hairpin through the host. Published ports on each service
+# are still exposed for host-side tools (browsers, Postman).
+networks:
+  default:
+    name: vacd-net
+    external: true

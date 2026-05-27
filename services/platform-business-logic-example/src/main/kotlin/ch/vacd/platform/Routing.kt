@@ -123,6 +123,7 @@ fun Application.routes(
                     put("compositionUid", result.compositionUid)
                     put("ehrId", result.ehrId)
                     put("patientId", result.patientId)
+                    put("immunizationCount", result.immunizationCount)
                     put("practitionerIds", buildJsonArray { result.practitionerIds.forEach { add(JsonPrimitive(it)) } })
                     put("organizationIds", buildJsonArray { result.organizationIds.forEach { add(JsonPrimitive(it)) } })
                 }

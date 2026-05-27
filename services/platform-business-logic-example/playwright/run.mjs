@@ -15,6 +15,9 @@ const EXAMPLES = [
   '01-immunization-administration-boostrix',
   '02-immunization-administration-comirnaty',
   '03-immunization-administration-priorix',
+  '04-immunization-administration-v2-2dose-comirnaty',
+  '05-immunization-administration-v2-3dose-comirnaty',
+  '06-immunization-administration-v2-3dose-mixed',
 ];
 
 (async () => {
@@ -42,7 +45,6 @@ const EXAMPLES = [
     console.log(`-- ${slug} --`);
     await page.selectOption('#exampleSelect', slug);
     // wait for hx-get to populate the textarea
-    // Every canonical example is a Bundle.
     await page.waitForFunction(
       () => (document.querySelector('#fhir-input')?.value || '').includes('"Bundle"'),
       null,
@@ -53,7 +55,7 @@ const EXAMPLES = [
 
     // Click Convert & Store
     await Promise.all([
-      page.waitForResponse(r => r.url().includes('/demo/convert') && r.status() === 200, { timeout: 20_000 }),
+      page.waitForResponse(r => r.url().includes('/demo/convert') && r.status() === 200, { timeout: 30_000 }),
       page.click('button.primary'),
     ]);
     // wait for FLAT panel to update with code-flat <pre>

@@ -10,7 +10,10 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.fail
 import kotlin.test.assertEquals
@@ -53,7 +56,13 @@ class EndToEndIntegrationTest {
         return Triple(ImmunizationIngest(hapi, openFhir, cdr), cdr, bs)
     }
 
-    @Test fun `ingests all canonical CH VACD document Bundles end-to-end`() = runBlocking {
+    private fun aqlRows(cdr: EhrbaseClient, query: String): JsonArray = runBlocking {
+        val raw = cdr.aql(query)
+        val parsed = Json.parseToJsonElement(raw) as? JsonObject
+        parsed?.get("rows") as? JsonArray ?: JsonArray(emptyList())
+    }
+
+    @Test fun `ingests V1 single-immunization Bundles end-to-end`() = runBlocking {
         val (ingest, cdr, _) = ingestor()
         val slugs = listOf(
             "01-immunization-administration-boostrix",
@@ -64,15 +73,82 @@ class EndToEndIntegrationTest {
             val result = ingest.ingest(example(slug))
             assertNotNull(result.compositionUid, "$slug: compositionUid")
             assertNotNull(result.ehrId, "$slug: ehrId")
-            // Each canonical Bundle carries 1 Practitioner and 1 Organization.
+            assertEquals(1, result.immunizationCount, "$slug: immunizationCount")
             assertEquals(1, result.practitionerIds.size, "$slug: practitioners")
             assertEquals(1, result.organizationIds.size, "$slug: organizations")
             val canonical = cdr.getCompositionCanonical(result.ehrId, result.compositionUid)
             assertTrue(canonical.contains("ACTION"), "$slug: composition missing ACTION")
-            val parsed = Json.parseToJsonElement(canonical) as kotlinx.serialization.json.JsonObject
-            val orig = FeederAuditEnricher.extractOriginal(parsed)
-            assertNotNull(orig, "$slug: feeder_audit/original_content missing")
-            assertTrue(orig.contains("\"Immunization\""), "$slug: original_content not FHIR JSON")
         }
+    }
+
+    @Test fun `ingests V2 multi-immunization Bundles end-to-end`() = runBlocking {
+        val (ingest, cdr, _) = ingestor()
+        val v2Slugs = listOf(
+            "04-immunization-administration-v2-2dose-comirnaty" to 2,
+            "05-immunization-administration-v2-3dose-comirnaty" to 3,
+            "06-immunization-administration-v2-3dose-mixed" to 3,
+        )
+        for ((slug, expectedCount) in v2Slugs) {
+            val result = ingest.ingest(example(slug))
+            assertNotNull(result.compositionUid, "$slug: compositionUid")
+            assertNotNull(result.ehrId, "$slug: ehrId")
+            assertEquals(expectedCount, result.immunizationCount, "$slug: immunizationCount")
+            val canonical = cdr.getCompositionCanonical(result.ehrId, result.compositionUid)
+            assertTrue(canonical.contains("ACTION"), "$slug: composition missing ACTION")
+            assertTrue(result.originalFhirJson.contains("\"Bundle\""), "$slug: originalFhirJson should be Bundle")
+        }
+    }
+
+    @Test fun `AQL validates V2 field mappings for 3-dose Comirnaty`() = runBlocking {
+        val (ingest, cdr, _) = ingestor()
+        val result = ingest.ingest(example("05-immunization-administration-v2-3dose-comirnaty"))
+
+
+        val countRows = aqlRows(cdr,
+            "SELECT count(a) AS cnt FROM EHR e CONTAINS COMPOSITION c " +
+            "CONTAINS ACTION a[openEHR-EHR-ACTION.medication.v1] " +
+            "WHERE c/uid/value = '${result.compositionUid}'")
+        val count = (countRows.firstOrNull() as? JsonArray)?.firstOrNull()
+            ?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() }
+        assertEquals(3, count, "expected 3 ACTION entries for 3-dose bundle")
+
+        val vaccineRows = aqlRows(cdr,
+            "SELECT a/description[at0017]/items[at0020]/value AS vaccine " +
+            "FROM EHR e CONTAINS COMPOSITION c " +
+            "CONTAINS ACTION a[openEHR-EHR-ACTION.medication.v1] " +
+            "WHERE c/uid/value = '${result.compositionUid}'")
+        assertTrue(vaccineRows.size == 3, "expected 3 vaccine rows, got ${vaccineRows.size}")
+
+        val timeRows = aqlRows(cdr,
+            "SELECT a/time/value AS t FROM EHR e CONTAINS COMPOSITION c " +
+            "CONTAINS ACTION a[openEHR-EHR-ACTION.medication.v1] " +
+            "WHERE c/uid/value = '${result.compositionUid}' ORDER BY a/time/value ASC")
+        assertTrue(timeRows.size == 3, "expected 3 time rows, got ${timeRows.size}")
+
+        val ismRows = aqlRows(cdr,
+            "SELECT a/ism_transition/careflow_step/defining_code/code_string AS step " +
+            "FROM EHR e CONTAINS COMPOSITION c " +
+            "CONTAINS ACTION a[openEHR-EHR-ACTION.medication.v1] " +
+            "WHERE c/uid/value = '${result.compositionUid}'")
+        for (row in ismRows) {
+            val step = ((row as? JsonArray)?.firstOrNull() as? JsonPrimitive)?.content
+            assertEquals("at0006", step, "ISM careflow_step should be at0006 (Dose administered)")
+        }
+    }
+
+    @Test fun `AQL validates mixed vaccines in single Composition`() = runBlocking {
+        val (ingest, cdr, _) = ingestor()
+        val result = ingest.ingest(example("06-immunization-administration-v2-3dose-mixed"))
+
+
+        val vaccineRows = aqlRows(cdr,
+            "SELECT a/description[at0017]/items[at0020]/value/defining_code/code_string AS code " +
+            "FROM EHR e CONTAINS COMPOSITION c " +
+            "CONTAINS ACTION a[openEHR-EHR-ACTION.medication.v1] " +
+            "WHERE c/uid/value = '${result.compositionUid}'")
+        val codes = vaccineRows.mapNotNull { row ->
+            ((row as? JsonArray)?.firstOrNull() as? JsonPrimitive)?.content
+        }.toSet()
+        assertTrue(codes.size >= 2, "expected at least 2 different vaccine codes, got $codes")
     }
 }

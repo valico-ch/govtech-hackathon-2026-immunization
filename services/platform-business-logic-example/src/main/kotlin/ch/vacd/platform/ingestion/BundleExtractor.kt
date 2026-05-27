@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
  *   - input MUST be a Bundle
  *   - Bundle.type MUST be "document"
  *   - entry[0].resource MUST be a Composition
- *   - the Composition MUST reference an Immunization via section.entry
+ *   - the Composition MUST reference at least one Immunization via section.entry
  *
  * Bare Immunization writes (FHIR REST style) are rejected. The CH VACD
  * Immunization Administration Document profile is the only accepted input
@@ -24,7 +24,7 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 data class Peeled(
     val composition: JsonObject,
-    val immunization: JsonObject,
+    val immunizations: List<JsonObject>,
     val patient: JsonObject,
     val practitioners: List<JsonObject>,
     val organizations: List<JsonObject>,
@@ -86,7 +86,7 @@ object BundleExtractor {
         }
         val composition = first
 
-        // Walk Composition.section[*].entry[*].reference to find the Immunization.
+        // Walk Composition.section[*].entry[*].reference to find Immunizations.
         val sections = composition["section"] as? JsonArray
             ?: throw IllegalArgumentException("Composition has no section")
         val sectionRefs = sections
@@ -95,18 +95,17 @@ object BundleExtractor {
             .filterIsInstance<JsonObject>()
             .mapNotNull { (it["reference"] as? JsonPrimitive)?.content }
 
-        val immunization = sectionRefs
-            .firstNotNullOfOrNull { ref ->
-                val resolved = byRef[ref]
-                if (resolved != null &&
-                    (resolved["resourceType"] as? JsonPrimitive)?.content == "Immunization") {
-                    resolved
-                } else null
+        val immunizations = sectionRefs.mapNotNull { ref ->
+            byRef[ref]?.takeIf {
+                (it["resourceType"] as? JsonPrimitive)?.content == "Immunization"
             }
-            ?: throw IllegalArgumentException(
-                "Composition does not reference an Immunization in its sections; " +
+        }
+        if (immunizations.isEmpty()) {
+            throw IllegalArgumentException(
+                "Composition does not reference any Immunization in its sections; " +
                 "saw section references: $sectionRefs"
             )
+        }
 
         // subject MUST point at a Patient in the Bundle.
         val subjectRef = (composition["subject"] as? JsonObject)
@@ -136,7 +135,7 @@ object BundleExtractor {
 
         return Peeled(
             composition = composition,
-            immunization = immunization,
+            immunizations = immunizations,
             patient = patient,
             practitioners = practitioners,
             organizations = organizations,

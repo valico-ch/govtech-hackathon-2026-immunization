@@ -150,11 +150,11 @@ private fun HTML.renderDemoPage(initialJson: String, initialSlug: String, exampl
             div("explain") {
                 h4 { +"How this works" }
                 ol {
-                    li { +"Client POSTs a CH VACD Immunization (or document Bundle) to "; code { +"POST /Immunization" }; +"." }
+                    li { +"Client POSTs a CH VACD Immunization Administration Document Bundle to "; code { +"POST /Immunization" }; +"." }
                     li { +"The platform fans Patient/Practitioner/Organization to "; code { +"fhir-server-1" }; +" (HAPI). The FHIR server is the demographics + directory store." }
                     li { +"The platform ensures an openEHR EHR exists in "; code { +"EHRbase" }; +", linked to the Patient via "; code { +"EHR_STATUS.subject.external_ref" }; +"." }
-                    li { +"The platform calls "; code { +"openFHIR /openfhir/toopenehr" }; +" with the Immunization to get a FLAT openEHR Composition." }
-                    li { +"The platform enriches FLAT with "; code { +"ctx/feeder_audit/original_content" }; +" (verbatim FHIR JSON — Konkretisierung §13)." }
+                    li { +"The platform sends the full Bundle to "; code { +"openFHIR /openfhir/toopenehr" }; +" — the V2 FHIRconnect mapping converts it to a FLAT openEHR Composition (COMPOSITION-level mapping with ~20 fields)." }
+                    li { +"The platform enriches FLAT with "; code { +"ctx/" }; +" metadata (language, territory, composer) that EHRbase requires." }
                     li { +"The platform persists the Composition to EHRbase and returns "; code { +"201 Created" }; +" with "; code { +"compositionUid" }; +"." }
                 }
             }
