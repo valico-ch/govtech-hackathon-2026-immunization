@@ -12,12 +12,10 @@ if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
 const BASE = process.env.BASE_URL || 'http://localhost:8888';
 const EXAMPLES = [
-  '01-immunization-administration-boostrix',
-  '02-immunization-administration-comirnaty',
-  '03-immunization-administration-priorix',
-  '04-immunization-administration-v2-2dose-comirnaty',
-  '05-immunization-administration-v2-3dose-comirnaty',
-  '06-immunization-administration-v2-3dose-mixed',
+  'chvacd-immunizationadministration-6b3a054b-8cb4-44b4-bde8-f79a544f5b00',
+  'chvacd-immunizationadministration-a16565ea-fdde-495a-9e3b-3634ac7bb304',
+  'chvacd-immunizationadministration-b6d3e7c8-58ad-4d17-b375-34390a08faec',
+  'chvacd-immunizationadministration-ec1548de-55c5-4081-9a96-a638f7d78a77',
 ];
 
 (async () => {

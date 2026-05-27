@@ -37,20 +37,18 @@ class ImmunizationIngest(
     private val log = LoggerFactory.getLogger(javaClass)
 
     suspend fun ingest(input: JsonElement): IngestResult {
-        // Normalize urn:uuid: bundles so every resource has a FHIR-legal id
-        // and all internal references use Type/id form.
-        val normalized = BundleNormalizer.normalize(input as JsonObject)
-        val peeled = BundleExtractor.peel(normalized)
+        val bundle = ensureBundleProfile(input as JsonObject)
+        val peeled = BundleExtractor.peel(bundle)
         peeled.immunizations.forEach { validateStatus(it) }
 
-        val bundle = ensureBundleProfile(normalized)
         val bundleText = PrettyJson.encodeToString(JsonObject.serializer(), bundle)
         val fhirResult = hapi.postBundle(bundleText)
         log.info("FHIR server accepted Bundle, id={}", fhirResult["id"])
 
-        val patientId = extractId(peeled.patient)
-        val practitionerIds = peeled.practitioners.map { extractId(it) }
-        val organizationIds = peeled.organizations.map { extractId(it) }
+        val fullUrlMap = buildFullUrlMap(bundle)
+        val patientId = extractId(peeled.patient, fullUrlMap)
+        val practitionerIds = peeled.practitioners.map { extractId(it, fullUrlMap) }
+        val organizationIds = peeled.organizations.map { extractId(it, fullUrlMap) }
 
         val ehrId = cdr.findOrCreateEhr(patientId)
 
@@ -75,9 +73,25 @@ class ImmunizationIngest(
         )
     }
 
-    private fun extractId(resource: JsonObject): String {
+    private fun extractId(resource: JsonObject, fullUrlMap: Map<JsonObject, String>): String {
         val id = (resource["id"] as? JsonPrimitive)?.content
-        return id ?: java.util.UUID.randomUUID().toString()
+        if (id != null) return id
+        val fullUrl = fullUrlMap[resource]
+        if (fullUrl != null && fullUrl.startsWith("urn:uuid:"))
+            return fullUrl.removePrefix("urn:uuid:")
+        return java.util.UUID.randomUUID().toString()
+    }
+
+    private fun buildFullUrlMap(bundle: JsonObject): Map<JsonObject, String> {
+        val entries = bundle["entry"] as? JsonArray ?: return emptyMap()
+        val map = HashMap<JsonObject, String>()
+        for (e in entries) {
+            val entry = e as? JsonObject ?: continue
+            val resource = entry["resource"] as? JsonObject ?: continue
+            val fullUrl = (entry["fullUrl"] as? JsonPrimitive)?.content ?: continue
+            map[resource] = fullUrl
+        }
+        return map
     }
 
     private fun validateStatus(imm: JsonObject) {

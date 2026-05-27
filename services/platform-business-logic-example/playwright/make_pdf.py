@@ -233,39 +233,22 @@ if initial.exists():
         "/demo loads with the first example pre-populated.",
         initial, "screenshot: 00-initial.png"))
 
-# V1 examples (single-immunization)
-V1_EXAMPLES = [
-    ("01-immunization-administration-boostrix",
-     "Boostrix (dTpa) — single immunization",
-     "V1 example: Swissmedic 637, deltoid IM, 1 Immunization in Bundle."),
-    ("02-immunization-administration-comirnaty",
-     "Comirnaty (COVID-19 mRNA) — single immunization",
-     "V1 example: Swissmedic 68225, SNOMED 840539006 (COVID-19)."),
-    ("03-immunization-administration-priorix",
-     "Priorix (MMR) — single immunization",
-     "V1 example: Swissmedic 615, SNOMED 14189004/36989005/36653000."),
-]
-
-for n, (slug, title, subtitle) in enumerate(V1_EXAMPLES, start=1):
-    done_n = n * 2
-    img = SHOTS / f"{done_n:02d}-{slug}-done.png"
-    if img.exists():
-        PAGES.append(screenshot_page(title, subtitle, img, f"screenshot: {img.name}"))
-
-# V2 examples (multi-immunization)
 V2_EXAMPLES = [
-    ("04-immunization-administration-v2-2dose-comirnaty",
-     "V2: 2-dose Comirnaty series",
-     "Multi-immunization Bundle: 2 Comirnaty doses → 1 Composition, 2 ACTION entries."),
-    ("05-immunization-administration-v2-3dose-comirnaty",
-     "V2: 3-dose Comirnaty series",
-     "Multi-immunization Bundle: 3 Comirnaty 30μg doses → 1 Composition, 3 ACTION entries."),
-    ("06-immunization-administration-v2-3dose-mixed",
-     "V2: Mixed vaccines (Boostrix Polio + FSME)",
-     "Multi-immunization Bundle: 2× Boostrix Polio + 1× FSME-Immun Junior → 3 ACTIONs, different vaccine codes."),
+    ("chvacd-immunizationadministration-6b3a054b-8cb4-44b4-bde8-f79a544f5b00",
+     "Mixed vaccines — Boostrix Polio + FSME-Immun",
+     "3 immunizations: 2× Boostrix Polio (681) + 1× FSME-Immun Junior (683). Patient: Monika Wegmueller."),
+    ("chvacd-immunizationadministration-a16565ea-fdde-495a-9e3b-3634ac7bb304",
+     "2-dose Comirnaty series",
+     "2 immunizations: Comirnaty COVID-19 (68225). Patient: Max Muster."),
+    ("chvacd-immunizationadministration-b6d3e7c8-58ad-4d17-b375-34390a08faec",
+     "2-dose Comirnaty series (variant)",
+     "2 immunizations: Comirnaty COVID-19 (68225). Patient: Max Muster."),
+    ("chvacd-immunizationadministration-ec1548de-55c5-4081-9a96-a638f7d78a77",
+     "3-dose Comirnaty 30μg series",
+     "3 immunizations: Comirnaty 30μg (68710-01). Patient: Max Muster."),
 ]
 
-for n, (slug, title, subtitle) in enumerate(V2_EXAMPLES, start=4):
+for n, (slug, title, subtitle) in enumerate(V2_EXAMPLES, start=1):
     done_n = n * 2
     img = SHOTS / f"{done_n:02d}-{slug}-done.png"
     if img.exists():
