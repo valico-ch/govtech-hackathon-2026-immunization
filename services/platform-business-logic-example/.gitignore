@@ -5,3 +5,4 @@ build/
 playwright/node_modules/
 playwright/shots/
 playwright/package-lock.json
+bin/

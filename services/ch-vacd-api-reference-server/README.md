@@ -36,6 +36,10 @@ or directly with java
 or use it as Docker Container
 	
 	see Docker/readme.md
+
+
+## Credits
+Copied from https://github.com/ralych, prepared by Roeland Luykx.
 	
 
 	

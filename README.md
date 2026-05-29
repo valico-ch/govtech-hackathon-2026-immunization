@@ -75,9 +75,9 @@ Canonical test Bundles live under [`examples/`](examples/).
 .devcontainer/         dev container config + post-create.sh
 docker-compose.yml     the backing services above
 services/
-  ch-vacd-api-reference-server/          HAPI FHIR + CH VACD ResourceProviders
+  ch-vacd-api-reference-server/          HAPI FHIR + CH VACD ResourceProviders (from https://github.com/ralych)
   platform-business-logic-example/       harness smoke-test (Kotlin/Ktor, not a template)
-examples/              canonical CH VACD example Bundles + round-trip script
+examples/              canonical CH VACD example Bundles
 docs/
   challenge/           original hackathon brief + openEHR template
   demo/                rendered PDF and screenshots of the example platform
