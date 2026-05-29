@@ -106,11 +106,6 @@ mappings:
       fhir: "$resource.site"
       openehr: "$archetype/description[at0017]/items[at0140]/items[at0141]"
 
-  - name: "doseNumber"
-    with:
-      fhir: "$resource.protocolApplied.doseNumber"
-      openehr: "$archetype/description[at0017]/items[at0025]"
-
   - name: "comment"
     with:
       fhir: "$resource.note.text"
@@ -196,6 +191,10 @@ mappings:
           with:
             fhir: "targetDisease"
             openehr: "items[at0003]"
+        - name: "doseNumber"
+          with:
+            fhir: "doseNumber"
+            openehr: "$archetype/description[at0017]/items[at0025]"
 
   - name: "subpotentDose"
     with:
